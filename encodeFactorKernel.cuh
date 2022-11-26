@@ -6,22 +6,6 @@ const int PIXELS_PER_BLOCK = 512;
 
 using namespace std::chrono;
 
-#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 600
-static __inline__ __device__ double atomicAdd(double *address, double val)
-{
-	unsigned long long int *address_as_ull = (unsigned long long int *)address;
-	unsigned long long int old = *address_as_ull, assumed;
-	if (val == 0.0)
-		return __longlong_as_double(old);
-	do
-	{
-		assumed = old;
-		old = atomicCAS(address_as_ull, assumed, __double_as_longlong(val + __longlong_as_double(assumed)));
-	} while (assumed != old);
-	return __longlong_as_double(old);
-}
-#endif
-
 struct FactorKernelData
 {
 	unsigned char *dev_img;
@@ -45,8 +29,11 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 	cudaError_t cudaStatus;
 
 	int imagePixelsCount = width * height;
+	int componentCount = compX * compY;
 	int imageArraySize = imagePixelsCount * 3;
-	int blocks = (imagePixelsCount - 1) / PIXELS_PER_BLOCK + 1;
+	int factorArraySize = imagePixelsCount * 3 * componentCount;
+	int threadCount = imagePixelsCount * componentCount;
+	int blocks = (threadCount - 1) / PIXELS_PER_BLOCK + 1;
 
 	// Allocate memory for pixel data
 	cudaStatus = cudaMalloc((void **)&dev_img, imageArraySize * sizeof(char));
@@ -68,7 +55,7 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 	// std::cout << "Image CPU->GPU copy time: " << duration_cast<milliseconds>(copyEnd - copyStart).count() << " ms \n";
 
 	// Allocate memory for factors
-	cudaStatus = cudaMalloc((void **)&dev_factors, compX * compY * 3 * sizeof(double));
+	cudaStatus = cudaMalloc((void **)&dev_factors, factorArraySize * sizeof(double));
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMalloc (dev_factors) failed!");
@@ -76,7 +63,7 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 	}
 
 	// Fill with zeros
-	cudaStatus = cudaMemset((void *)dev_factors, 0, compX * compY * 3 * sizeof(double));
+	cudaStatus = cudaMemset((void *)dev_factors, 0, factorArraySize * sizeof(double));
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMemset (dev_factors) failed!");
@@ -130,40 +117,37 @@ __global__ void factorKernel(FactorKernelData data)
 {
 	int threadIndex = blockIdx.x * blockDim.x + threadIdx.x;
 
-	if (threadIndex >= data.imagePixelsCount)
+	if (threadIndex >= data.imagePixelsCount * data.compX * data.compY)
 		return;
 
-	int threadPixelX = threadIndex % data.width;
-	int threadPixelY = threadIndex / data.width;
+	int imgPixelCount = data.width * data.height;
+	int componentIndex = threadIndex / imgPixelCount;
+	int pixelIndex = threadIndex % imgPixelCount;
 
-	// calculate factors
-	for (int currentCompY = 0; currentCompY < data.compY; currentCompY++)
-	{
-		for (int currentCompX = 0; currentCompX < data.compX; currentCompX++)
-		{
-			int normalisation = currentCompX == 0 && currentCompY == 0 ? 1 : 2;
-			double basis = normalisation *
-						   cos((PI * currentCompX * threadPixelX) / (double)data.width) *
-						   cos((PI * currentCompY * threadPixelY) / (double)data.height);
-			multiplyBasisFunction(
-				currentCompX,
-				currentCompY,
-				threadPixelX,
-				threadPixelY,
-				&data,
-				basis);
-		}
-	}
+	int componentY = componentIndex / data.compX;
+	int componentX = componentIndex % data.compX;
+
+	int pixelY = pixelIndex / data.width;
+	int pixelX = pixelIndex % data.width;
+
+	int normalisation = componentX == 0 && componentY == 0 ? 1 : 2;
+	double basis = normalisation *
+				   cos((PI * componentX * pixelX) / (double)data.width) *
+				   cos((PI * componentY * pixelY) / (double)data.height);
+	multiplyBasisFunction(componentX, componentY, pixelX, pixelY, &data, basis);
 }
 
-__device__ void multiplyBasisFunction(int currentCompX, int currentCompY, int threadX, int threadY, FactorKernelData *data, double basis)
+__device__ void multiplyBasisFunction(int componentX, int componentY, int pixelX, int pixelY, FactorKernelData *data, double basis)
 {
-	int factorsArrayIndex = (currentCompY * data->compX + currentCompX) * 3;
-	int basePixelIndex = (threadY * data->width + threadX) * 3;
+	int componentIndex = (componentY * data->compX + componentX) * data->width * data->height * 3;
+	int pixelR = pixelY * data->width + pixelX;
+	int pixelG = pixelR + data->width * data->height;
+	int pixelB = pixelG + data->width * data->height;
+	int basePixelIndex = (pixelY * data->width + pixelX) * 3;
 
-	atomicAdd(data->dev_factors + factorsArrayIndex, basis * sRGBToLinear(data->dev_img[basePixelIndex]));
-	atomicAdd(data->dev_factors + factorsArrayIndex + 1, basis * sRGBToLinear(data->dev_img[basePixelIndex + 1]));
-	atomicAdd(data->dev_factors + factorsArrayIndex + 2, basis * sRGBToLinear(data->dev_img[basePixelIndex + 2]));
+	data->dev_factors[componentIndex + pixelR] = basis * sRGBToLinear(data->dev_img[basePixelIndex]);
+	data->dev_factors[componentIndex + pixelG] = basis * sRGBToLinear(data->dev_img[basePixelIndex + 1]);
+	data->dev_factors[componentIndex + pixelB] = basis * sRGBToLinear(data->dev_img[basePixelIndex + 2]);
 }
 
 __device__ double sRGBToLinear(unsigned char value)

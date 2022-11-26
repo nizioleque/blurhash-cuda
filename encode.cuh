@@ -8,6 +8,7 @@
 #include "encodeFactorKernel.cuh"
 #include "encodeKernel.cuh"
 #include "encodeHashStart.cuh"
+#include "encodeFactorSumKernel.cuh"
 
 using namespace std::chrono;
 
@@ -50,14 +51,15 @@ int encode(const char *filename, int compX, int compY)
 	double scale = 1.0 / (width * height);
 
 	double *dev_factors = runFactorKernel(img, width, height, compX, compY);
-	double *factors = getFactorsFromDevice(dev_factors, compX, compY);
+	double *dev_factors_sum = runFactorSumKernel(dev_factors, width, height, compX, compY);
+	double *factors = getFactorsFromDevice(dev_factors_sum, compX, compY);
 
 	double maximumValue;
 	int quantisedMaximumValue;
 	calculateMaximumValue(maximumValue, quantisedMaximumValue, factors, width, height, compX, compY, scale);
 
 	auto encodeStart = high_resolution_clock::now();
-	char *dev_hash = runEncodeKernel(dev_factors, width, height, compX, compY, maximumValue, hashSize);
+	char *dev_hash = runEncodeKernel(dev_factors_sum, width, height, compX, compY, maximumValue, hashSize);
 	char *hash = encodeHashStart(hashSize, dev_hash, compX, compY, quantisedMaximumValue, factors, scale);
 	auto encodeEnd = high_resolution_clock::now();
 	std::cout << "String encoding time: " << duration_cast<milliseconds>(readEnd - readStart).count() << " ms \n";
@@ -67,6 +69,7 @@ int encode(const char *filename, int compX, int compY)
 	// Free memory
 	stbi_image_free(img);
 	cudaFree(dev_factors);
+	cudaFree(dev_factors_sum);
 	free(factors);
 	cudaFree(dev_hash);
 	free(hash);
