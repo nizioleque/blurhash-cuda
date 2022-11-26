@@ -5,6 +5,7 @@ double *runFactorSumKernel(double *dev_factors, int width, int height, int compX
 {
     double *dev_factors_sum = 0;
     cudaError_t cudaStatus;
+    _V2::system_clock::time_point sumStart, sumEnd;
 
     // Allocate memory for factors
     cudaStatus = cudaMalloc((void **)&dev_factors_sum, compX * compY * 3 * sizeof(double));
@@ -21,6 +22,8 @@ double *runFactorSumKernel(double *dev_factors, int width, int height, int compX
         fprintf(stderr, "cudaMemset (dev_factors_sum) failed!");
         goto Error;
     }
+
+    sumStart = high_resolution_clock::now();
 
     factorSumKernel<<<1, compX * compY>>>(dev_factors, dev_factors_sum, width, height, compX, compY);
 
@@ -40,6 +43,8 @@ double *runFactorSumKernel(double *dev_factors, int width, int height, int compX
         fprintf(stderr, "cudaDeviceSynchronize returned error code %d after launching addKernel!\n", cudaStatus);
         goto Error;
     }
+    sumEnd = high_resolution_clock::now();
+    std::cout << "Factor reduction (kernel): " << duration_cast<milliseconds>(sumEnd - sumStart).count() << " ms \n";
 
     cudaFree(dev_factors);
     return dev_factors_sum;

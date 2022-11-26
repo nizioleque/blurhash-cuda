@@ -2,7 +2,7 @@
 #include <chrono>
 
 #define PI 3.14159265358979323846
-const int PIXELS_PER_BLOCK = 512;
+const int PIXELS_PER_BLOCK = 1024;
 
 using namespace std::chrono;
 
@@ -27,6 +27,7 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 	unsigned char *dev_img = 0;
 	double *dev_factors = 0;
 	cudaError_t cudaStatus;
+	_V2::system_clock::time_point copyStart, copyEnd, kernelStart, kernelEnd;
 
 	int imagePixelsCount = width * height;
 	int componentCount = compX * compY;
@@ -44,15 +45,15 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 	}
 
 	// Copy pixel data to GPU memory
-	// auto copyStart = high_resolution_clock::now();
+	copyStart = high_resolution_clock::now();
 	cudaStatus = cudaMemcpy(dev_img, img, imageArraySize * sizeof(char), cudaMemcpyHostToDevice);
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMemcpy failed!");
 		goto Error;
 	}
-	// auto copyEnd = high_resolution_clock::now();
-	// std::cout << "Image CPU->GPU copy time: " << duration_cast<milliseconds>(copyEnd - copyStart).count() << " ms \n";
+	copyEnd = high_resolution_clock::now();
+	std::cout << "Image CPU->GPU copy time: " << duration_cast<milliseconds>(copyEnd - copyStart).count() << " ms \n";
 
 	// Allocate memory for factors
 	cudaStatus = cudaMalloc((void **)&dev_factors, factorArraySize * sizeof(double));
@@ -80,7 +81,7 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 	data.compY = compY;
 
 	// run kernel
-	// auto kernelStart = high_resolution_clock::now();
+	kernelStart = high_resolution_clock::now();
 	factorKernel<<<blocks, PIXELS_PER_BLOCK>>>(data);
 
 	// Check for any errors launching the kernel
@@ -100,8 +101,8 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 		goto Error;
 	}
 
-	// auto kernelEnd = high_resolution_clock::now();
-	// std::cout << "Factor calculation (kernel) time: " << duration_cast<milliseconds>(kernelEnd - kernelStart).count() << " ms \n";
+	kernelEnd = high_resolution_clock::now();
+	std::cout << "Factor calculation (kernel) time: " << duration_cast<milliseconds>(kernelEnd - kernelStart).count() << " ms \n";
 
 	cudaFree(dev_img);
 	return dev_factors;
