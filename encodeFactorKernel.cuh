@@ -2,7 +2,6 @@
 #include <chrono>
 
 #define PI 3.14159265358979323846
-const int PIXELS_PER_BLOCK = 1024;
 
 using namespace std::chrono;
 
@@ -33,8 +32,7 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 	int componentCount = compX * compY;
 	int imageArraySize = imagePixelsCount * 3;
 	int factorArraySize = imagePixelsCount * 3 * componentCount;
-	int threadCount = imagePixelsCount * componentCount;
-	int blocks = (threadCount - 1) / PIXELS_PER_BLOCK + 1;
+	int blocks = componentCount * height;
 
 	// Allocate memory for pixel data
 	cudaStatus = cudaMalloc((void **)&dev_img, imageArraySize * sizeof(char));
@@ -82,7 +80,7 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 
 	// run kernel
 	kernelStart = high_resolution_clock::now();
-	factorKernel<<<blocks, PIXELS_PER_BLOCK>>>(data);
+	factorKernel<<<blocks, width>>>(data);
 
 	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
@@ -116,39 +114,54 @@ Error:
 
 __global__ void factorKernel(FactorKernelData data)
 {
-	int threadIndex = blockIdx.x * blockDim.x + threadIdx.x;
+	int pixelX = threadIdx.x;
+	int rowIndex = blockIdx.x;
+	int componentCount = data.compX * data.compY;
+	int componentIndex = rowIndex / data.height;
+	int pixelY = rowIndex % data.height;
+	int colorOffset = componentCount * data.height * data.width;
 
-	if (threadIndex >= data.imagePixelsCount * data.compX * data.compY)
+	if (componentIndex >= componentCount || pixelY >= data.height)
 		return;
-
-	int imgPixelCount = data.width * data.height;
-	int componentIndex = threadIndex / imgPixelCount;
-	int pixelIndex = threadIndex % imgPixelCount;
 
 	int componentY = componentIndex / data.compX;
 	int componentX = componentIndex % data.compX;
-
-	int pixelY = pixelIndex / data.width;
-	int pixelX = pixelIndex % data.width;
 
 	int normalisation = componentX == 0 && componentY == 0 ? 1 : 2;
 	double basis = normalisation *
 				   cos((PI * componentX * pixelX) / (double)data.width) *
 				   cos((PI * componentY * pixelY) / (double)data.height);
 	multiplyBasisFunction(componentX, componentY, pixelX, pixelY, &data, basis);
+
+	// sum values in each image row
+	for (int dist = 1; dist < data.width; dist *= 2)
+	{
+		if (pixelX % dist != 0)
+			return;
+		if (pixelX + dist >= data.width)
+			return;
+
+		int baseIndex = rowIndex * data.width + pixelX;
+
+		__syncthreads();
+
+		data.dev_factors[baseIndex + 0 * colorOffset] += data.dev_factors[baseIndex + 0 * colorOffset + dist];
+		data.dev_factors[baseIndex + 1 * colorOffset] += data.dev_factors[baseIndex + 1 * colorOffset + dist];
+		data.dev_factors[baseIndex + 2 * colorOffset] += data.dev_factors[baseIndex + 2 * colorOffset + dist];
+
+		__syncthreads();
+	}
 }
 
 __device__ void multiplyBasisFunction(int componentX, int componentY, int pixelX, int pixelY, FactorKernelData *data, double basis)
 {
-	int componentIndex = (componentY * data->compX + componentX) * data->width * data->height * 3;
-	int pixelR = pixelY * data->width + pixelX;
-	int pixelG = pixelR + data->width * data->height;
-	int pixelB = pixelG + data->width * data->height;
-	int basePixelIndex = (pixelY * data->width + pixelX) * 3;
+	int componentStart = (componentY * data->compX + componentX) * data->width * data->height;
+	int colorOffset = data->compX * data->compY * data->height * data->width;
+	int basePixelIndex = (pixelY * data->width + pixelX);
 
-	data->dev_factors[componentIndex + pixelR] = basis * sRGBToLinear(data->dev_img[basePixelIndex]);
-	data->dev_factors[componentIndex + pixelG] = basis * sRGBToLinear(data->dev_img[basePixelIndex + 1]);
-	data->dev_factors[componentIndex + pixelB] = basis * sRGBToLinear(data->dev_img[basePixelIndex + 2]);
+	data->dev_factors[componentStart + basePixelIndex + 0 * colorOffset] = basis * sRGBToLinear(data->dev_img[basePixelIndex * 3 + 0]);
+	data->dev_factors[componentStart + basePixelIndex + 1 * colorOffset] = basis * sRGBToLinear(data->dev_img[basePixelIndex * 3 + 1]);
+	data->dev_factors[componentStart + basePixelIndex + 2 * colorOffset] = basis * sRGBToLinear(data->dev_img[basePixelIndex * 3 + 2]);
 }
 
 __device__ double sRGBToLinear(unsigned char value)

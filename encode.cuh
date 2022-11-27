@@ -18,6 +18,12 @@ void calculateMaximumValue(double &maximumValue, int &quantisedMaximumValue, dou
 
 int encode(const char *filename, int compX, int compY)
 {
+	if (compX < 1 || compX > 9 || compY < 1 || compY > 9)
+	{
+		printf("Blurhash must have between 1 and 9 components\n");
+		return 1;
+	}
+
 	// read image
 	int width, height;
 	auto readStart = high_resolution_clock::now();
@@ -32,9 +38,9 @@ int encode(const char *filename, int compX, int compY)
 	std::cout << "Image read time: " << duration_cast<milliseconds>(readEnd - readStart).count() << " ms \n";
 	printf("Loaded image with a width of %dpx, a height of %dpx\n", width, height);
 
-	if (compX < 1 || compX > 9 || compY < 1 || compY > 9)
+	if (width > 1024 || height > 1024)
 	{
-		printf("Blurhash must have between 1 and 9 components\n");
+		printf("Image width and height must not exceed 1024 pixels\n");
 		return 1;
 	}
 
@@ -77,27 +83,27 @@ int encode(const char *filename, int compX, int compY)
 	return 0;
 }
 
-double *getFactorsFromDevice(double *dev_factors, int compX, int compY)
+double *getFactorsFromDevice(double *dev_factors_sum, int compX, int compY)
 {
 	cudaError_t cudaStatus;
-	_V2::system_clock::time_point copyStart, copyEnd, kernelStart, kernelEnd;
+	_V2::system_clock::time_point copyStart, copyEnd;
 
 	// Copy output vector from GPU buffer to host memory.
 	copyStart = high_resolution_clock::now();
 	double *factors = (double *)malloc(compX * compY * 3 * sizeof(double));
-	cudaStatus = cudaMemcpy(factors, dev_factors, compX * compY * 3 * sizeof(double), cudaMemcpyDeviceToHost);
+	cudaStatus = cudaMemcpy(factors, dev_factors_sum, compX * compY * 3 * sizeof(double), cudaMemcpyDeviceToHost);
 	if (cudaStatus != cudaSuccess)
 	{
 		fprintf(stderr, "cudaMemcpy failed!");
 		goto Error;
 	}
 	copyEnd = high_resolution_clock::now();
-	std::cout << "Factors GPU->CPU copy time: " << duration_cast<milliseconds>(copyEnd - copyStart).count() << " ms \n";
+	std::cout << "Factors GPU -> CPU copy time: " << duration_cast<milliseconds>(copyEnd - copyStart).count() << " ms \n";
 
 	return factors;
 
 Error:
-	cudaFree(dev_factors);
+	cudaFree(dev_factors_sum);
 	free(factors);
 
 	return nullptr;

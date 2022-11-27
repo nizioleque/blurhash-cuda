@@ -7,6 +7,9 @@ double *runFactorSumKernel(double *dev_factors, int width, int height, int compX
     cudaError_t cudaStatus;
     _V2::system_clock::time_point sumStart, sumEnd;
 
+    int threads = height;
+    int blocks = compX * compY;
+
     // Allocate memory for factors
     cudaStatus = cudaMalloc((void **)&dev_factors_sum, compX * compY * 3 * sizeof(double));
     if (cudaStatus != cudaSuccess)
@@ -25,7 +28,7 @@ double *runFactorSumKernel(double *dev_factors, int width, int height, int compX
 
     sumStart = high_resolution_clock::now();
 
-    factorSumKernel<<<1, compX * compY>>>(dev_factors, dev_factors_sum, width, height, compX, compY);
+    factorSumKernel<<<blocks, threads>>>(dev_factors, dev_factors_sum, width, height, compX, compY);
 
     // Check for any errors launching the kernel
     cudaStatus = cudaGetLastError();
@@ -58,18 +61,34 @@ Error:
 
 __global__ void factorSumKernel(double *dev_factors, double *dev_factors_sum, int width, int height, int compX, int compY)
 {
-    int componentIndex = threadIdx.x;
-    int imgPixelCount = width * height;
-    int factorsStartIndex = componentIndex * imgPixelCount * 3;
+    int blockIndex = blockIdx.x;
+    int imagePixelCount = height * width;
+    int componentStart = blockIndex * imagePixelCount;
 
-    // a[i] = size;
-    for (int i = 1; i < imgPixelCount; i++)
+    int lineIndex = threadIdx.x;
+    int baseIndex = componentStart + lineIndex * width;
+
+    int colorOffset = compX * compY * height * width;
+
+    // sum values in the 1st column of each image
+    for (int dist = 1; dist < height; dist *= 2)
     {
-        // R
-        dev_factors_sum[componentIndex * 3] += dev_factors[factorsStartIndex + i];
-        // G
-        dev_factors_sum[componentIndex * 3 + 1] += dev_factors[factorsStartIndex + imgPixelCount + i];
-        // B
-        dev_factors_sum[componentIndex * 3 + 2] += dev_factors[factorsStartIndex + 2 * imgPixelCount + i];
+        if (lineIndex % dist != 0)
+            return;
+        if (lineIndex + dist >= height)
+            return;
+
+        __syncthreads();
+
+        dev_factors[baseIndex + 0 * colorOffset] += dev_factors[baseIndex + 0 * colorOffset + dist * width];
+        dev_factors[baseIndex + 1 * colorOffset] += dev_factors[baseIndex + 1 * colorOffset + dist * width];
+        dev_factors[baseIndex + 2 * colorOffset] += dev_factors[baseIndex + 2 * colorOffset + dist * width];
+        __syncthreads();
     }
+
+    __syncthreads();
+
+    dev_factors_sum[blockIndex * 3 + 0] = dev_factors[componentStart + 0 * colorOffset];
+    dev_factors_sum[blockIndex * 3 + 1] = dev_factors[componentStart + 1 * colorOffset];
+    dev_factors_sum[blockIndex * 3 + 2] = dev_factors[componentStart + 2 * colorOffset];
 }
