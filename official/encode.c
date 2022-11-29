@@ -5,11 +5,11 @@
 #include <time.h>
 #include <stdio.h>
 
-static float *multiplyBasisFunction(int xComponent, int yComponent, int width, int height, uint8_t *rgb, size_t bytesPerRow);
+static double *multiplyBasisFunction(int xComponent, int yComponent, int width, int height, uint8_t *rgb, size_t bytesPerRow);
 static char *encode_int(int value, int length, char *destination);
 
-static int encodeDC(float r, float g, float b);
-static int encodeAC(float r, float g, float b, float maximumValue);
+static int encodeDC(double r, double g, double b);
+static int encodeAC(double r, double g, double b, double maximumValue);
 
 const char *blurHashForPixels(int xComponents, int yComponents, int width, int height, uint8_t *rgb, size_t bytesPerRow)
 {
@@ -22,7 +22,7 @@ const char *blurHashForPixels(int xComponents, int yComponents, int width, int h
 	if (yComponents < 1 || yComponents > 9)
 		return NULL;
 
-	float factors[yComponents][xComponents][3];
+	double factors[yComponents][xComponents][3];
 	memset(factors, 0, sizeof(factors));
 
 	startFactor = clock();
@@ -30,7 +30,7 @@ const char *blurHashForPixels(int xComponents, int yComponents, int width, int h
 	{
 		for (int x = 0; x < xComponents; x++)
 		{
-			float *factor = multiplyBasisFunction(x, y, width, height, rgb, bytesPerRow);
+			double *factor = multiplyBasisFunction(x, y, width, height, rgb, bytesPerRow);
 			factors[y][x][0] = factor[0];
 			factors[y][x][1] = factor[1];
 			factors[y][x][2] = factor[2];
@@ -39,8 +39,8 @@ const char *blurHashForPixels(int xComponents, int yComponents, int width, int h
 	endFactor = clock();
 	printf("Factor calculation time: %d ms\n", (int)(((double)(endFactor - startFactor)) / CLOCKS_PER_SEC * 1000));
 
-	float *dc = factors[0][0];
-	float *ac = dc + 3;
+	double *dc = factors[0][0];
+	double *ac = dc + 3;
 	int acCount = xComponents * yComponents - 1;
 	char *ptr = buffer;
 
@@ -49,17 +49,17 @@ const char *blurHashForPixels(int xComponents, int yComponents, int width, int h
 	int sizeFlag = (xComponents - 1) + (yComponents - 1) * 9;
 	ptr = encode_int(sizeFlag, 1, ptr);
 
-	float maximumValue;
+	double maximumValue;
 	if (acCount > 0)
 	{
-		float actualMaximumValue = 0;
+		double actualMaximumValue = 0;
 		for (int i = 0; i < acCount * 3; i++)
 		{
-			actualMaximumValue = fmaxf(fabsf(ac[i]), actualMaximumValue);
+			actualMaximumValue = fmax(fabs(ac[i]), actualMaximumValue);
 		}
 
-		int quantisedMaximumValue = fmaxf(0, fminf(82, floorf(actualMaximumValue * 166 - 0.5)));
-		maximumValue = ((float)quantisedMaximumValue + 1) / 166;
+		int quantisedMaximumValue = fmax(0, fmin(82, floor(actualMaximumValue * 166 - 0.5)));
+		maximumValue = ((double)quantisedMaximumValue + 1) / 166;
 		ptr = encode_int(quantisedMaximumValue, 1, ptr);
 	}
 	else
@@ -83,25 +83,25 @@ const char *blurHashForPixels(int xComponents, int yComponents, int width, int h
 	return buffer;
 }
 
-static float *multiplyBasisFunction(int xComponent, int yComponent, int width, int height, uint8_t *rgb, size_t bytesPerRow)
+static double *multiplyBasisFunction(int xComponent, int yComponent, int width, int height, uint8_t *rgb, size_t bytesPerRow)
 {
-	float r = 0, g = 0, b = 0;
-	float normalisation = (xComponent == 0 && yComponent == 0) ? 1 : 2;
+	double r = 0, g = 0, b = 0;
+	double normalisation = (xComponent == 0 && yComponent == 0) ? 1 : 2;
 
 	for (int y = 0; y < height; y++)
 	{
 		for (int x = 0; x < width; x++)
 		{
-			float basis = cosf(M_PI * xComponent * x / width) * cosf(M_PI * yComponent * y / height);
+			double basis = cos(M_PI * xComponent * x / width) * cos(M_PI * yComponent * y / height);
 			r += basis * sRGBToLinear(rgb[3 * x + 0 + y * bytesPerRow]);
 			g += basis * sRGBToLinear(rgb[3 * x + 1 + y * bytesPerRow]);
 			b += basis * sRGBToLinear(rgb[3 * x + 2 + y * bytesPerRow]);
 		}
 	}
 
-	float scale = normalisation / (width * height);
+	double scale = normalisation / (width * height);
 
-	static float result[3];
+	static double result[3];
 	result[0] = r * scale;
 	result[1] = g * scale;
 	result[2] = b * scale;
@@ -109,7 +109,7 @@ static float *multiplyBasisFunction(int xComponent, int yComponent, int width, i
 	return result;
 }
 
-static int encodeDC(float r, float g, float b)
+static int encodeDC(double r, double g, double b)
 {
 	int roundedR = linearTosRGB(r);
 	int roundedG = linearTosRGB(g);
@@ -117,11 +117,11 @@ static int encodeDC(float r, float g, float b)
 	return (roundedR << 16) + (roundedG << 8) + roundedB;
 }
 
-static int encodeAC(float r, float g, float b, float maximumValue)
+static int encodeAC(double r, double g, double b, double maximumValue)
 {
-	int quantR = fmaxf(0, fminf(18, floorf(signPow(r / maximumValue, 0.5) * 9 + 9.5)));
-	int quantG = fmaxf(0, fminf(18, floorf(signPow(g / maximumValue, 0.5) * 9 + 9.5)));
-	int quantB = fmaxf(0, fminf(18, floorf(signPow(b / maximumValue, 0.5) * 9 + 9.5)));
+	int quantR = fmax(0, fmin(18, floor(signPow(r / maximumValue, 0.5) * 9 + 9.5)));
+	int quantG = fmax(0, fmin(18, floor(signPow(g / maximumValue, 0.5) * 9 + 9.5)));
+	int quantB = fmax(0, fmin(18, floor(signPow(b / maximumValue, 0.5) * 9 + 9.5)));
 
 	return quantR * 19 * 19 + quantG * 19 + quantB;
 }
