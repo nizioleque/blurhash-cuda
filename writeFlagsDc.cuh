@@ -1,18 +1,19 @@
 #include <cuda_runtime.h>
 
-char* encodeHashStart(int hashSize, char* dev_hash, int compX, int compY, int quantisedMaximumValue, double* factors, double scale);
-unsigned char linearTosRGB(double value);
+char *encodeHashStart(int hashSize, char *dev_hash, int compX, int compY, int quantisedMaximumValue, double *factors, double scale);
+int linearTosRGB(double value);
 
-char* encodeHashStart(int hashSize, char* dev_hash, int compX, int compY, int quantisedMaximumValue, double* factors, double scale) {
-	unsigned char roundedR, roundedG, roundedB;
+char *encodeHashStart(int hashSize, char *dev_hash, int compX, int compY, int quantisedMaximumValue, double *factors, double scale)
+{
+	int roundedR, roundedG, roundedB;
 	int dc, sizeFlag;
 	cudaError_t cudaStatus;
-	
-	
+
 	// Copy output vector from GPU buffer to host memory.
-	char* hash = (char*)malloc((hashSize + 1) * sizeof(char));
+	char *hash = (char *)malloc((hashSize + 1) * sizeof(char));
 	cudaStatus = cudaMemcpy(hash, dev_hash, hashSize * sizeof(char), cudaMemcpyDeviceToHost);
-	if (cudaStatus != cudaSuccess) {
+	if (cudaStatus != cudaSuccess)
+	{
 		fprintf(stderr, "cudaMemcpy failed!");
 		goto Error;
 	}
@@ -41,12 +42,15 @@ Error:
 	return nullptr;
 }
 
-unsigned char linearTosRGB(double value) {
+int linearTosRGB(double value)
+{
 	double v = std::max(0.0, std::min(1.0, value));
-	if (v <= 0.0031308) {
-		return trunc(v * 12.92 * 255.0 + 0.5);
+	if (v <= 0.0031308)
+	{
+		return (v * 12.92 * 255.0 + 0.5);
 	}
-	else {
-		return trunc((1.055 * pow(v, 1 / 2.4) - 0.055) * 255.0 + 0.5);
+	else
+	{
+		return ((1.055 * pow(v, 1 / 2.4) - 0.055) * 255.0 + 0.5);
 	}
 }

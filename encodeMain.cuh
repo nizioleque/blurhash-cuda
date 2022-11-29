@@ -4,17 +4,15 @@
 #include <cuda_runtime.h>
 #include <chrono>
 #include <iostream>
-#include "base83.cuh"
-#include "encodeFactorKernel.cuh"
-#include "encodeKernel.cuh"
-#include "encodeHashStart.cuh"
-#include "encodeFactorSumKernel.cuh"
+#include "utils.cuh"
+#include "factorCalculation.cuh"
+#include "writeAc.cuh"
+#include "writeFlagsDc.cuh"
+#include "factorSum.cuh"
 
 using namespace std::chrono;
 
 int encode(const char *filename, int compX, int compY);
-double *getFactorsFromDevice(double *dev_factors, int compX, int compY);
-void calculateMaximumValue(double &maximumValue, int &quantisedMaximumValue, double *factors, int width, int height, int compX, int compY, double scale);
 
 int encode(const char *filename, int compX, int compY)
 {
@@ -70,7 +68,8 @@ int encode(const char *filename, int compX, int compY)
 	auto encodeEnd = high_resolution_clock::now();
 	std::cout << "String encoding time: " << duration_cast<milliseconds>(readEnd - readStart).count() << " ms \n";
 
-	std::cout << "Result: " << hash << '\n';
+	std::cout << "Blurhash:\n"
+			  << hash << '\n';
 
 	// Free memory
 	stbi_image_free(img);
@@ -81,44 +80,4 @@ int encode(const char *filename, int compX, int compY)
 	free(hash);
 
 	return 0;
-}
-
-double *getFactorsFromDevice(double *dev_factors_sum, int compX, int compY)
-{
-	cudaError_t cudaStatus;
-	_V2::system_clock::time_point copyStart, copyEnd;
-
-	// Copy output vector from GPU buffer to host memory.
-	copyStart = high_resolution_clock::now();
-	double *factors = (double *)malloc(compX * compY * 3 * sizeof(double));
-	cudaStatus = cudaMemcpy(factors, dev_factors_sum, compX * compY * 3 * sizeof(double), cudaMemcpyDeviceToHost);
-	if (cudaStatus != cudaSuccess)
-	{
-		fprintf(stderr, "cudaMemcpy failed!");
-		goto Error;
-	}
-	copyEnd = high_resolution_clock::now();
-	std::cout << "Factors GPU -> CPU copy time: " << duration_cast<milliseconds>(copyEnd - copyStart).count() << " ms \n";
-
-	return factors;
-
-Error:
-	cudaFree(dev_factors_sum);
-	free(factors);
-
-	return nullptr;
-}
-
-void calculateMaximumValue(double &maximumValue, int &quantisedMaximumValue, double *factors, int width, int height, int compX, int compY, double scale)
-{
-	// calculate maximum value
-	maximumValue = factors[3];
-	for (int i = 4; i < compX * compY * 3; i++)
-	{
-		if (factors[i] > maximumValue)
-			maximumValue = factors[i];
-	}
-	maximumValue *= scale;
-	quantisedMaximumValue = floor(std::max(0, std::min(82, (int)floor(maximumValue * 166 - 0.5))));
-	maximumValue = (quantisedMaximumValue + 1) / 166.0;
 }

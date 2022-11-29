@@ -1,7 +1,7 @@
-kernel: base83.cuh decode.cuh encode.cuh encodeFactorKernel.cuh encodeFactorSumKernel.cuh encodeHashStart.cuh encodeKernel.cuh kernel.cu
-	# nvcc kernel.cu -o kernel
-	nvcc kernel.cu -o kernel -O3
+encode: main.cu encodeMain.cuh factorCalculation.cuh factorSum.cuh utils.cuh writeAc.cuh writeFlagsDc.cuh
+	# nvcc main.cu -o encode
+	nvcc main.cu -o encode -O3
 
 .PHONY: clean
 clean:
-	rm -f kernel
+	rm -f encode

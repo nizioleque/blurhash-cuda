@@ -1,7 +1,9 @@
 #include <cuda_runtime.h>
 #include <chrono>
 
-#define PI 3.14159265358979323846
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 using namespace std::chrono;
 
@@ -82,7 +84,6 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 	kernelStart = high_resolution_clock::now();
 	factorKernel<<<blocks, width>>>(data);
 
-	// Check for any errors launching the kernel
 	cudaStatus = cudaGetLastError();
 	if (cudaStatus != cudaSuccess)
 	{
@@ -90,8 +91,6 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 		goto Error;
 	}
 
-	// cudaDeviceSynchronize waits for the kernel to finish, and returns
-	// any errors encountered during the launch.
 	cudaStatus = cudaDeviceSynchronize();
 	if (cudaStatus != cudaSuccess)
 	{
@@ -100,7 +99,7 @@ double *runFactorKernel(unsigned char *img, int width, int height, int compX, in
 	}
 
 	kernelEnd = high_resolution_clock::now();
-	std::cout << "Factor calculation (kernel) time: " << duration_cast<milliseconds>(kernelEnd - kernelStart).count() << " ms \n";
+	std::cout << "Factor calculation time: " << duration_cast<milliseconds>(kernelEnd - kernelStart).count() << " ms \n";
 
 	cudaFree(dev_img);
 	return dev_factors;
@@ -129,8 +128,8 @@ __global__ void factorKernel(FactorKernelData data)
 
 	int normalisation = componentX == 0 && componentY == 0 ? 1 : 2;
 	double basis = normalisation *
-				   cos((PI * componentX * pixelX) / (double)data.width) *
-				   cos((PI * componentY * pixelY) / (double)data.height);
+				   cos((M_PI * componentX * pixelX) / (double)data.width) *
+				   cos((M_PI * componentY * pixelY) / (double)data.height);
 	multiplyBasisFunction(componentX, componentY, pixelX, pixelY, &data, basis);
 
 	// sum values in each image row
@@ -148,8 +147,6 @@ __global__ void factorKernel(FactorKernelData data)
 		data.dev_factors[baseIndex + 0 * colorOffset] += data.dev_factors[baseIndex + 0 * colorOffset + dist];
 		data.dev_factors[baseIndex + 1 * colorOffset] += data.dev_factors[baseIndex + 1 * colorOffset + dist];
 		data.dev_factors[baseIndex + 2 * colorOffset] += data.dev_factors[baseIndex + 2 * colorOffset + dist];
-
-		__syncthreads();
 	}
 }
 

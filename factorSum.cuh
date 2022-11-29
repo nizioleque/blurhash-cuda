@@ -30,7 +30,6 @@ double *runFactorSumKernel(double *dev_factors, int width, int height, int compX
 
     factorSumKernel<<<blocks, threads>>>(dev_factors, dev_factors_sum, width, height, compX, compY);
 
-    // Check for any errors launching the kernel
     cudaStatus = cudaGetLastError();
     if (cudaStatus != cudaSuccess)
     {
@@ -38,8 +37,6 @@ double *runFactorSumKernel(double *dev_factors, int width, int height, int compX
         goto Error;
     }
 
-    // cudaDeviceSynchronize waits for the kernel to finish, and returns
-    // any errors encountered during the launch.
     cudaStatus = cudaDeviceSynchronize();
     if (cudaStatus != cudaSuccess)
     {
@@ -47,7 +44,7 @@ double *runFactorSumKernel(double *dev_factors, int width, int height, int compX
         goto Error;
     }
     sumEnd = high_resolution_clock::now();
-    std::cout << "Factor reduction (kernel): " << duration_cast<milliseconds>(sumEnd - sumStart).count() << " ms \n";
+    std::cout << "Factor reduction time: " << duration_cast<milliseconds>(sumEnd - sumStart).count() << " ms \n";
 
     cudaFree(dev_factors);
     return dev_factors_sum;
@@ -83,7 +80,6 @@ __global__ void factorSumKernel(double *dev_factors, double *dev_factors_sum, in
         dev_factors[baseIndex + 0 * colorOffset] += dev_factors[baseIndex + 0 * colorOffset + dist * width];
         dev_factors[baseIndex + 1 * colorOffset] += dev_factors[baseIndex + 1 * colorOffset + dist * width];
         dev_factors[baseIndex + 2 * colorOffset] += dev_factors[baseIndex + 2 * colorOffset + dist * width];
-        __syncthreads();
     }
 
     __syncthreads();
