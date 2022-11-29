@@ -70,12 +70,10 @@ __global__ void factorSumKernel(double *dev_factors, double *dev_factors_sum, in
     // sum values in the 1st column of each image
     for (int dist = 1; dist < height; dist *= 2)
     {
-        if (lineIndex % dist != 0)
-            return;
-        if (lineIndex + dist >= height)
-            return;
-
         __syncthreads();
+
+        if (lineIndex % (dist * 2) != 0 || lineIndex + dist >= height)
+            continue;
 
         dev_factors[baseIndex + 0 * colorOffset] += dev_factors[baseIndex + 0 * colorOffset + dist * width];
         dev_factors[baseIndex + 1 * colorOffset] += dev_factors[baseIndex + 1 * colorOffset + dist * width];
@@ -84,7 +82,10 @@ __global__ void factorSumKernel(double *dev_factors, double *dev_factors_sum, in
 
     __syncthreads();
 
-    dev_factors_sum[blockIndex * 3 + 0] = dev_factors[componentStart + 0 * colorOffset];
-    dev_factors_sum[blockIndex * 3 + 1] = dev_factors[componentStart + 1 * colorOffset];
-    dev_factors_sum[blockIndex * 3 + 2] = dev_factors[componentStart + 2 * colorOffset];
+    if (lineIndex == 0)
+    {
+        dev_factors_sum[blockIndex * 3 + 0] = dev_factors[componentStart + 0 * colorOffset];
+        dev_factors_sum[blockIndex * 3 + 1] = dev_factors[componentStart + 1 * colorOffset];
+        dev_factors_sum[blockIndex * 3 + 2] = dev_factors[componentStart + 2 * colorOffset];
+    }
 }

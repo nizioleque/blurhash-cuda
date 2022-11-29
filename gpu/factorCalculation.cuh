@@ -120,33 +120,36 @@ __global__ void factorKernel(FactorKernelData data)
 	int pixelY = rowIndex % data.height;
 	int colorOffset = componentCount * data.height * data.width;
 
-	if (componentIndex >= componentCount || pixelY >= data.height)
-		return;
+	bool working = !((componentIndex >= componentCount || pixelY >= data.height));
 
-	int componentY = componentIndex / data.compX;
-	int componentX = componentIndex % data.compX;
+	if (working)
+	{
+		int componentY = componentIndex / data.compX;
+		int componentX = componentIndex % data.compX;
 
-	int normalisation = componentX == 0 && componentY == 0 ? 1 : 2;
-	double basis = normalisation *
-				   cos((M_PI * componentX * pixelX) / (double)data.width) *
-				   cos((M_PI * componentY * pixelY) / (double)data.height);
-	multiplyBasisFunction(componentX, componentY, pixelX, pixelY, &data, basis);
+		int normalisation = componentX == 0 && componentY == 0 ? 1 : 2;
+		double basis = normalisation *
+					   cos((M_PI * componentX * pixelX) / (double)data.width) *
+					   cos((M_PI * componentY * pixelY) / (double)data.height);
+		multiplyBasisFunction(componentX, componentY, pixelX, pixelY, &data, basis);
+	}
 
 	// sum values in each image row
 	for (int dist = 1; dist < data.width; dist *= 2)
 	{
-		if (pixelX % dist != 0)
-			return;
-		if (pixelX + dist >= data.width)
-			return;
-
-		int baseIndex = rowIndex * data.width + pixelX;
-
 		__syncthreads();
 
-		data.dev_factors[baseIndex + 0 * colorOffset] += data.dev_factors[baseIndex + 0 * colorOffset + dist];
-		data.dev_factors[baseIndex + 1 * colorOffset] += data.dev_factors[baseIndex + 1 * colorOffset + dist];
-		data.dev_factors[baseIndex + 2 * colorOffset] += data.dev_factors[baseIndex + 2 * colorOffset + dist];
+		if (working)
+		{
+			if (pixelX % (dist * 2) != 0 || pixelX + dist >= data.width)
+				continue;
+
+			int baseIndex = rowIndex * data.width + pixelX;
+
+			data.dev_factors[baseIndex + 0 * colorOffset] += data.dev_factors[baseIndex + 0 * colorOffset + dist];
+			data.dev_factors[baseIndex + 1 * colorOffset] += data.dev_factors[baseIndex + 1 * colorOffset + dist];
+			data.dev_factors[baseIndex + 2 * colorOffset] += data.dev_factors[baseIndex + 2 * colorOffset + dist];
+		}
 	}
 }
 
