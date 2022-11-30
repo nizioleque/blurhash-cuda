@@ -54,7 +54,7 @@ int encode(const char *filename, int compX, int compY)
 	int hashSize = 6 + 2 * (compX * compY - 1);
 	double scale = 1.0 / (width * height);
 
-	double *dev_factors = runFactorKernel(img, width, height, compX, compY);
+	DevFactors dev_factors = runFactorKernel(img, width, height, compX, compY);
 	double *dev_factors_sum = runFactorSumKernel(dev_factors, width, height, compX, compY);
 	double *factors = getFactorsFromDevice(dev_factors_sum, compX, compY);
 
@@ -73,7 +73,9 @@ int encode(const char *filename, int compX, int compY)
 
 	// Free memory
 	stbi_image_free(img);
-	cudaFree(dev_factors);
+	cudaFree(dev_factors.r);
+	cudaFree(dev_factors.g);
+	cudaFree(dev_factors.b);
 	cudaFree(dev_factors_sum);
 	free(factors);
 	cudaFree(dev_hash);
